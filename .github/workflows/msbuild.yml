@@ -63,3 +63,52 @@ jobs:
       run: |
         pip install pytest numpy
         pytest
+
+    - name: Package Release/x64 distributable
+      if: ${{ matrix.configuration == 'Release' && matrix.platform == 'x64' }}
+      working-directory: ${{env.GITHUB_WORKSPACE}}
+      shell: pwsh
+      run: |
+        $stage = "stage/softcam-x64-release"
+        New-Item -ItemType Directory -Force -Path "$stage/bin", "$stage/lib", "$stage/include/softcam" | Out-Null
+        Copy-Item "x64/Release/softcam.dll" "$stage/bin/"
+        Copy-Item "x64/Release/softcam.lib" "$stage/lib/"
+        Copy-Item "src/softcam/softcam.h"   "$stage/include/softcam/"
+        Copy-Item "src/softcam/softcam.def" "$stage/include/softcam/"
+        Copy-Item "LICENSE"                 "$stage/"
+        Compress-Archive -Path "$stage/*" -DestinationPath "softcam-x64-release.zip" -Force
+
+    - name: Upload Release/x64 distributable as workflow artifact
+      if: ${{ matrix.configuration == 'Release' && matrix.platform == 'x64' }}
+      uses: actions/upload-artifact@v4
+      with:
+        name: softcam-x64-release
+        path: softcam-x64-release.zip
+        retention-days: 90
+
+  publish-release-asset:
+    name: Attach distributable to GitHub Release
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write   # required to create / update the GH Release and upload assets
+    steps:
+    - name: Download Release/x64 distributable
+      uses: actions/download-artifact@v4
+      with:
+        name: softcam-x64-release
+        path: ./
+
+    - name: Create release if missing and upload distributable
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        GH_REPO: ${{ github.repository }}
+        TAG: ${{ github.ref_name }}
+      run: |
+        if ! gh release view "$TAG" >/dev/null 2>&1; then
+          gh release create "$TAG" --verify-tag \
+            --title "$TAG" \
+            --notes "Automated build artifact for $TAG. See CHANGELOG.md for details."
+        fi
+        gh release upload "$TAG" softcam-x64-release.zip --clobber
