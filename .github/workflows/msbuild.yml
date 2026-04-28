@@ -77,13 +77,17 @@ jobs:
         Copy-Item "src/softcam/softcam.def" "$stage/include/softcam/"
         Copy-Item "LICENSE"                 "$stage/"
         Compress-Archive -Path "$stage/*" -DestinationPath "softcam-x64-release.zip" -Force
+        $hash = (Get-FileHash -Algorithm SHA256 "softcam-x64-release.zip").Hash.ToLower()
+        "$hash  softcam-x64-release.zip" | Set-Content -Encoding ascii -NoNewline "softcam-x64-release.zip.sha256"
 
     - name: Upload Release/x64 distributable as workflow artifact
       if: ${{ matrix.configuration == 'Release' && matrix.platform == 'x64' }}
       uses: actions/upload-artifact@v4
       with:
         name: softcam-x64-release
-        path: softcam-x64-release.zip
+        path: |
+          softcam-x64-release.zip
+          softcam-x64-release.zip.sha256
         retention-days: 90
 
   publish-release-asset:
@@ -109,6 +113,9 @@ jobs:
         if ! gh release view "$TAG" >/dev/null 2>&1; then
           gh release create "$TAG" --verify-tag \
             --title "$TAG" \
-            --notes "Automated build artifact for $TAG. See CHANGELOG.md for details."
+            --generate-notes
         fi
-        gh release upload "$TAG" softcam-x64-release.zip --clobber
+        gh release upload "$TAG" \
+          softcam-x64-release.zip \
+          softcam-x64-release.zip.sha256 \
+          --clobber
