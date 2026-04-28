@@ -1,0 +1,17 @@
+changelog:
+  categories:
+    - title: New features and other improvements
+      labels:
+        - enhancement
+    - title: Fixed bugs
+      labels:
+        - bug
+    - title: CI and tooling
+      labels:
+        - ci
+    - title: Updated dependencies
+      labels:
+        - dependencies
+    - title: Improved documentation
+      labels:
+        - documentation
