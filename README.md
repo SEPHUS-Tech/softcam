@@ -1,7 +1,7 @@
 # Softcam
 
-[![Build and Test](https://github.com/tshino/softcam/actions/workflows/msbuild.yml/badge.svg)](https://github.com/tshino/softcam/actions/workflows/msbuild.yml)
-[![CodeQL](https://github.com/tshino/softcam/actions/workflows/codeql-analysis.yml/badge.svg)](https://github.com/tshino/softcam/actions/workflows/codeql-analysis.yml)
+[![CI](https://github.com/SEPHUS-Tech/softcam/actions/workflows/ci.yml/badge.svg)](https://github.com/SEPHUS-Tech/softcam/actions/workflows/ci.yml)
+[![Security](https://github.com/SEPHUS-Tech/softcam/actions/workflows/security.yml/badge.svg)](https://github.com/SEPHUS-Tech/softcam/actions/workflows/security.yml)
 
 This is a library to make a virtual webcam on Windows.
 
@@ -43,6 +43,23 @@ The header and the import libraries will also be put into the `dist` directory.
 Note: The DLL `softcam.dll` built above is a 64-bit DLL file. In order to support 32-bit camera applications as well, you should build 32-bit `softcam.dll` too by choosing the platform `Win32`. The 32-bit DLL file will be put in the `dist/bin/Win32` directory.
 
 Note: You can use Visual Studio 2019 instead. The project files to use with Visual Studio 2019 have a name with the common suffix `_vs2019`. So your starting point is `softcam_vs2019.sln`.
+
+## Continuous integration and releases
+
+CI runs on pull requests to `main` and on pushes to `main`, and again as part of a release. A pull request first runs the `hygiene` job: commit subjects against Conventional Commits, a secret scan of its own commits, and a check for whether anything besides documentation changed. When it did, the build matrix runs Release and Debug for x64 and Win32: the solutions, `core_tests.exe` and `dll_tests.exe`, the examples, and the Python binding on Release/x64.
+
+The security workflow runs CodeQL, a secret scan of the full history, the third-party licence check and a guard that every dependency manifest has an audit job. It runs on pull requests and pushes to `main`, weekly, and as part of a release.
+
+Releases are cut from annotated tags, which the release workflow verifies. A release candidate and a stable release look like this:
+
+```
+git tag -a vX.Y.Z-rc.1 -m "vX.Y.Z-rc.1"
+git push origin vX.Y.Z-rc.1
+git tag -a vX.Y.Z -m "vX.Y.Z"
+git push origin vX.Y.Z
+```
+
+The tag runs CI and security again, builds Release/x64, packages `softcam-x64-release.zip` with a `.sha256`, and publishes both on a GitHub release whose notes are generated from the commit subjects. A tag with a suffix is marked as a pre-release and never becomes the latest release.
 
 ## Demo
 

@@ -1,0 +1,105 @@
+# git-cliff — release notes generated from Conventional Commit subjects.
+#
+# Chosen over GitHub's own generator, which groups by pull-request label. This groups by commit
+# type, so the notes are sectioned whether or not a change arrived through a labelled pull request.
+
+[changelog]
+header = """
+# Changelog
+
+Generated from the commit subjects, which a Conventional Commits gate keeps parseable.
+"""
+# Each entry links to its commit and names its author. Every URL is built from `remote.github`,
+# whose owner and repo come from the `GITHUB_REPO` environment variable (see the bottom of this
+# file), so no edit is needed.
+#
+# A bare `@word` in a subject is wrapped in backticks by a preprocessor further down, not escaped
+# here — see the note on that setting for why.
+body = """
+{% if version %}\
+## {{ version | trim_start_matches(pat="v") }} — {{ timestamp | date(format="%Y-%m-%d") }}
+{% else %}\
+## Unreleased
+{% endif %}\
+{% for group, commits in commits | group_by(attribute="group") %}
+
+### {{ group | upper_first }}
+{% for commit in commits %}
+- {% if commit.scope %}**{{ commit.scope }}**: {% endif %}{{ commit.message | upper_first }}{% if commit.breaking %} **(breaking)**{% endif %} ([{{ commit.id | truncate(length=7, end="") }}](https://github.com/{{ remote.github.owner }}/{{ remote.github.repo }}/commit/{{ commit.id }})){% if commit.remote.username %} by @{{ commit.remote.username }}{% endif %}{% if commit.remote.pr_number %} in [#{{ commit.remote.pr_number }}](https://github.com/{{ remote.github.owner }}/{{ remote.github.repo }}/pull/{{ commit.remote.pr_number }}){% endif %}
+{%- endfor %}
+{% endfor %}
+{%- set first_timers = github.contributors | filter(attribute="is_first_time", value=true) -%}
+{% if first_timers | length > 0 %}
+
+### New contributors
+{% for c in first_timers %}
+- @{{ c.username }} made their first contribution\
+{% if c.pr_number %} in [#{{ c.pr_number }}](https://github.com/{{ remote.github.owner }}/{{ remote.github.repo }}/pull/{{ c.pr_number }}){% endif %}
+{%- endfor %}
+{% endif %}
+{% if previous.version and version %}
+
+**Full changelog**: [{{ previous.version }}...{{ version }}](https://github.com/{{ remote.github.owner }}/{{ remote.github.repo }}/compare/{{ previous.version }}...{{ version }})
+{% endif %}
+"""
+trim = true
+footer = ""
+
+# The `<!-- NN -->` prefixes on the group names exist only to order the sections: git-cliff
+# groups with Tera's `group_by`, which sorts keys lexicographically, so without them Documentation
+# renders above Features. They are removed here, after sorting.
+postprocessors = [
+  { pattern = '<!-- [0-9]+ -->', replace = "" },
+]
+
+[git]
+conventional_commits = true
+filter_unconventional = false
+
+# GitHub turns a bare `@word` in release notes into a mention of that name, whether or not the
+# account exists, and lists it in the release's Contributors.
+# Wrapping the token in backticks stops the mention and reads correctly as the literal it is —
+# better than an HTML entity, which is invisible in the raw markdown and easy to reintroduce.
+# The `by @author` attribution is added by the template afterwards, so it still links properly.
+commit_preprocessors = [
+  { pattern = '(^|[^A-Za-z0-9_.+-])@([A-Za-z0-9_][A-Za-z0-9_-]*)', replace = '${1}`@${2}`' },
+]
+split_commits = false
+protect_breaking_commits = true
+filter_commits = false
+tag_pattern = "v[0-9]*"
+topo_order = false
+sort_commits = "newest"
+
+commit_parsers = [
+  # Merge commits carry no information the branch's own commits do not, and `filter_unconventional
+  # = false` would otherwise drop every one of them into "Other". Skipped first, because the
+  # parsers are evaluated in order and `.*` at the bottom would catch them.
+  { message = "^Merge (pull request|branch|remote-tracking)", skip = true },
+  { message = "^feat", group = "<!-- 00 -->Features" },
+  { message = "^fix", group = "<!-- 01 -->Fixes" },
+  { message = "^perf", group = "<!-- 02 -->Performance" },
+  { message = "^refactor", group = "<!-- 03 -->Refactoring" },
+  { message = "^docs", group = "<!-- 04 -->Documentation" },
+  { message = "^test", group = "<!-- 05 -->Tests" },
+  { message = "^build", group = "<!-- 06 -->Build" },
+  { message = "^ci", group = "<!-- 07 -->Continuous integration" },
+  { message = "^style", group = "<!-- 08 -->Style" },
+  { message = "^revert", group = "<!-- 09 -->Reverts" },
+  { message = "^chore", group = "<!-- 10 -->Chores" },
+  { message = ".*", group = "<!-- 11 -->Other" },
+]
+
+# The repository is deliberately NOT named here. `owner` and `repo` come from the GITHUB_REPO
+# environment variable (`--github-repo <OWNER/REPO>`, git-cliff 2.13.1), which the release workflow
+# sets from `github.repository`. So this file is portable: copying it into another repository needs
+# no edit, and no account handle is baked into it.
+#
+# Author resolution and the first-time-contributor list REQUIRE a token with access to the
+# repository. They do not degrade: on a private repo an unauthenticated run gets a 404 from the
+# pulls API and git-cliff panics rather than carrying on without authors. The release workflow
+# passes GITHUB_TOKEN and grants `pull-requests: read`.
+#
+# Generating notes by hand needs both in the environment:
+#   GITHUB_REPO=$(gh repo view --json nameWithOwner -q .nameWithOwner) \
+#   GITHUB_TOKEN=$(gh auth token) git-cliff --latest

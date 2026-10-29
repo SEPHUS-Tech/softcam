@@ -1,0 +1,106 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_call:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  # Path to the solution file relative to the root of the project.
+  SOLUTION_FILE_PATH: ./softcam.sln
+
+jobs:
+  hygiene:
+    # Only a pull request has a base to check its commits and changed areas against.
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    outputs:
+      code: ${{ steps.changed.outputs.code }}
+    steps:
+    - uses: actions/checkout@v6
+      with:
+        fetch-depth: 0
+
+    - name: Check commit subjects
+      run: ./scripts/checks/check_commits.sh "origin/${{ github.base_ref }}..HEAD"
+
+    - name: Scan the pull request's commits for secrets
+      run: docker run --rm -v "$PWD:/repo" ghcr.io/gitleaks/gitleaks:v8.30.1 git /repo --log-opts="origin/${{ github.base_ref }}..HEAD" --redact --no-banner
+
+    - name: Check whether anything other than documentation changed
+      id: changed
+      # A pull request that only touches documentation runs hygiene alone.
+      run: |
+        if git diff --name-only "origin/${{ github.base_ref }}...HEAD" | grep -qvE '\.md$|(^|/)docs/'; then
+          echo "code=true" >> "$GITHUB_OUTPUT"
+        else
+          echo "code=false" >> "$GITHUB_OUTPUT"
+        fi
+
+  build:
+    needs: hygiene
+    if: ${{ !cancelled() && (github.event_name != 'pull_request' || (needs.hygiene.result == 'success' && needs.hygiene.outputs.code == 'true')) }}
+    strategy:
+      matrix:
+        configuration: [Release, Debug]
+        platform: [x64, Win32]
+
+    runs-on: windows-latest
+
+    steps:
+    - uses: actions/checkout@v6
+
+    - name: Add MSBuild to PATH
+      uses: microsoft/setup-msbuild@v3
+
+    - name: Restore NuGet packages
+      working-directory: ${{env.GITHUB_WORKSPACE}}
+      run: nuget restore ${{env.SOLUTION_FILE_PATH}}
+
+    - name: Build Libraries
+      working-directory: ${{env.GITHUB_WORKSPACE}}
+      # Add additional options to the MSBuild command line here (like platform or verbosity level).
+      # See https://docs.microsoft.com/visualstudio/msbuild/msbuild-command-line-reference
+      run: msbuild /m /p:Configuration=${{matrix.configuration}} /p:Platform=${{matrix.platform}} ${{env.SOLUTION_FILE_PATH}}
+
+    - name: Core Tests
+      working-directory: ${{env.GITHUB_WORKSPACE}}
+      run: ${{matrix.platform}}/${{matrix.configuration}}/core_tests.exe
+
+    - name: Dll Tests
+      working-directory: ${{env.GITHUB_WORKSPACE}}
+      run: ${{matrix.platform}}/${{matrix.configuration}}/dll_tests.exe
+
+    - name: Build Example sender
+      working-directory: ${{env.GITHUB_WORKSPACE}}
+      run: msbuild /m /p:Configuration=${{matrix.configuration}} /p:Platform=${{matrix.platform}} ./examples/sender/sender.sln
+
+    - name: Build Example softcam_installer
+      working-directory: ${{env.GITHUB_WORKSPACE}}
+      run: msbuild /m /p:Configuration=${{matrix.configuration}} /p:Platform=${{matrix.platform}} ./examples/softcam_installer/softcam_installer.sln
+
+    - name: Build Example python_binding
+      working-directory: ./examples/python_binding
+      shell: cmd
+      if: ${{ matrix.configuration == 'Release' && matrix.platform == 'x64' }}
+      run: |
+        echo yes | call DownloadPybind11.bat
+        call _GetPythonPath.bat
+        msbuild /m /p:Configuration=${{matrix.configuration}} /p:Platform=${{matrix.platform}} ./python_binding.sln
+
+    - name: Test Python Binding
+      working-directory: ./examples/python_binding
+      shell: cmd
+      if: ${{ matrix.configuration == 'Release' && matrix.platform == 'x64' }}
+      run: |
+        pip install pytest numpy
+        pytest
