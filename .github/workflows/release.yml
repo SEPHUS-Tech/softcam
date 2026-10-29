@@ -1,0 +1,131 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  # Path to the solution file relative to the root of the project.
+  SOLUTION_FILE_PATH: ./softcam.sln
+
+jobs:
+  ci:
+    uses: ./.github/workflows/ci.yml
+    permissions:
+      contents: read
+    secrets: inherit
+
+  security:
+    uses: ./.github/workflows/security.yml
+    permissions:
+      contents: read
+      security-events: write   # CodeQL uploads its results
+    secrets: inherit
+
+  tag:
+    name: The tag must be annotated
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v6
+
+    - name: Check the tag type
+      # actions/checkout leaves a lightweight ref in place of the pushed tag, so the tag object
+      # is fetched again before its type is read.
+      run: |
+        git fetch --force --no-tags origin "refs/tags/$GITHUB_REF_NAME:refs/tags/$GITHUB_REF_NAME"
+        if [ "$(git cat-file -t "refs/tags/$GITHUB_REF_NAME")" != tag ]; then
+          echo "::error::$GITHUB_REF_NAME is not annotated. Cut releases with: git tag -a <version> -m <version>"
+          exit 1
+        fi
+
+  build:
+    needs: [ci, security, tag]
+    # `tag` is skipped on a dispatch, which would otherwise skip this job too.
+    if: ${{ !cancelled() && needs.ci.result == 'success' && needs.security.result == 'success' && needs.tag.result != 'failure' }}
+    runs-on: windows-latest
+    steps:
+    - uses: actions/checkout@v6
+
+    - name: Add MSBuild to PATH
+      uses: microsoft/setup-msbuild@v3
+
+    - name: Restore NuGet packages
+      working-directory: ${{env.GITHUB_WORKSPACE}}
+      run: nuget restore ${{env.SOLUTION_FILE_PATH}}
+
+    - name: Build Libraries
+      working-directory: ${{env.GITHUB_WORKSPACE}}
+      run: msbuild /m /p:Configuration=Release /p:Platform=x64 ${{env.SOLUTION_FILE_PATH}}
+
+    - name: Package Release/x64 distributable
+      working-directory: ${{env.GITHUB_WORKSPACE}}
+      shell: pwsh
+      run: |
+        $stage = "stage/softcam-x64-release"
+        New-Item -ItemType Directory -Force -Path "$stage/bin", "$stage/lib", "$stage/include/softcam" | Out-Null
+        Copy-Item "x64/Release/softcam.dll" "$stage/bin/"
+        Copy-Item "x64/Release/softcam.lib" "$stage/lib/"
+        Copy-Item "src/softcam/softcam.h"   "$stage/include/softcam/"
+        Copy-Item "src/softcam/softcam.def" "$stage/include/softcam/"
+        Copy-Item "LICENSE"                 "$stage/"
+        Compress-Archive -Path "$stage/*" -DestinationPath "softcam-x64-release.zip" -Force
+        $hash = (Get-FileHash -Algorithm SHA256 "softcam-x64-release.zip").Hash.ToLower()
+        "$hash  softcam-x64-release.zip" | Set-Content -Encoding ascii -NoNewline "softcam-x64-release.zip.sha256"
+
+    - name: Upload Release/x64 distributable as workflow artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: softcam-x64-release
+        path: |
+          softcam-x64-release.zip
+          softcam-x64-release.zip.sha256
+        retention-days: 90
+
+  release:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    permissions:
+      contents: write        # create the release
+      pull-requests: read    # git-cliff reads the pulls API to attribute authors
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v6
+      with:
+        fetch-depth: 0   # git-cliff needs the full history and every tag
+
+    - name: Download Release/x64 distributable
+      uses: actions/download-artifact@v4
+      with:
+        name: softcam-x64-release
+        path: ./
+
+    - name: Generate the notes
+      uses: orhun/git-cliff-action@v4
+      id: cliff
+      with:
+        config: cliff.toml
+        args: --latest --strip header
+      env:
+        GITHUB_REPO: ${{ github.repository }}
+        # Required: on a private repository an unauthenticated run gets a 404 from the pulls API
+        # and git-cliff fails instead of omitting authors.
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        # A stable release's notes start at the previous stable release, so a release cut after
+        # its candidates still lists every change since then, not only those since the last rc.
+        GIT_CLIFF_TAG_PATTERN: ${{ contains(github.ref_name, '-') && 'v[0-9]*' || '^v[0-9]+\.[0-9]+\.[0-9]+$' }}
+
+    - name: Publish the GitHub release
+      uses: softprops/action-gh-release@v3
+      with:
+        body: ${{ steps.cliff.outputs.content }}
+        files: |
+          softcam-x64-release.zip
+          softcam-x64-release.zip.sha256
+        # A tag with a suffix (v0.1.0-rc.1) is a pre-release and never becomes "latest".
+        prerelease: ${{ contains(github.ref_name, '-') }}
+        make_latest: ${{ !contains(github.ref_name, '-') }}
