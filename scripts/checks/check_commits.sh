@@ -39,6 +39,13 @@ if [ -z "$range" ]; then
   fi
 fi
 
+# An unreadable range (a base that was not fetched, a typo) makes git log print nothing,
+# which would otherwise pass with zero subjects checked.
+if ! git rev-list "$range" >/dev/null 2>&1; then
+  echo "FAIL cannot read the commit range $range"
+  exit 1
+fi
+
 fail=0
 checked=0
 while IFS= read -r line; do
