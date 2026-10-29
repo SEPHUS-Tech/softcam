@@ -12,7 +12,7 @@ set -uo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$ROOT" || exit
 
-ALLOWED="MIT BSD-2-Clause BSD-3-Clause Apache-2.0 ISC Zlib Unlicense CC0-1.0"
+ALLOWED="MIT BSD-2-Clause BSD-3-Clause Apache-2.0 ISC Zlib Unlicense CC0-1.0 0BSD Python-2.0 BlueOak-1.0.0"
 
 printf '%-66s %-9s %s\n' PACKAGE VERSION LICENSE
 fail=0
