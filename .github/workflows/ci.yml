@@ -33,7 +33,9 @@ jobs:
         fetch-depth: 0
 
     - name: Check commit subjects
-      run: ./scripts/checks/check_commits.sh "origin/${{ github.base_ref }}..HEAD"
+      env:
+        BASE_REF: ${{ github.base_ref }}
+      run: ./scripts/checks/check_commits.sh "origin/$BASE_REF..HEAD"
 
     - name: Check pull request title
       env:
@@ -44,13 +46,17 @@ jobs:
       run: ./scripts/checks/check_audit_coverage.sh
 
     - name: Scan the pull request's commits for secrets
-      run: docker run --rm -v "$PWD:/repo" ghcr.io/gitleaks/gitleaks:v8.30.1@sha256:c00b6bd0aeb3071cbcb79009cb16a60dd9e0a7c60e2be9ab65d25e6bc8abbb7f git /repo --log-opts="origin/${{ github.base_ref }}..HEAD" --redact --no-banner
+      env:
+        BASE_REF: ${{ github.base_ref }}
+      run: docker run --rm -v "$PWD:/repo" ghcr.io/gitleaks/gitleaks:v8.30.1@sha256:c00b6bd0aeb3071cbcb79009cb16a60dd9e0a7c60e2be9ab65d25e6bc8abbb7f git /repo --log-opts="origin/$BASE_REF..HEAD" --redact --no-banner
 
     - name: Check whether anything other than documentation changed
       id: changed
+      env:
+        BASE_REF: ${{ github.base_ref }}
       # A pull request that only touches documentation runs hygiene alone.
       run: |
-        if git diff --no-renames --name-only "origin/${{ github.base_ref }}...HEAD" | grep -qvE '\.md$|(^|/)docs/'; then
+        if git diff --no-renames --name-only "origin/$BASE_REF...HEAD" | grep -qvE '\.md$|(^|/)docs/'; then
           echo "code=true" >> "$GITHUB_OUTPUT"
         else
           echo "code=false" >> "$GITHUB_OUTPUT"
