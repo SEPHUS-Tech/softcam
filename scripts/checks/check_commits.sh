@@ -7,7 +7,7 @@
 # git-cliff, so a subject that does not parse is a defect in the release, not an untidy log line.
 #
 # Deliberately plain shell. commitlint would work but needs node and two npm packages to check a
-# regular expression, and `code-quality.md` says standard library first.
+# regular expression.
 set -uo pipefail
 
 # The types git-cliff groups on, plus revert, which git itself generates.
