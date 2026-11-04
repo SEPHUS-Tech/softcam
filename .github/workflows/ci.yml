@@ -26,7 +26,7 @@ jobs:
     outputs:
       code: ${{ steps.changed.outputs.code }}
     steps:
-    - uses: actions/checkout@v6
+    - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
       with:
         fetch-depth: 0
 
@@ -42,7 +42,7 @@ jobs:
       run: ./scripts/checks/check_audit_coverage.sh
 
     - name: Scan the pull request's commits for secrets
-      run: docker run --rm -v "$PWD:/repo" ghcr.io/gitleaks/gitleaks:v8.30.1 git /repo --log-opts="origin/${{ github.base_ref }}..HEAD" --redact --no-banner
+      run: docker run --rm -v "$PWD:/repo" ghcr.io/gitleaks/gitleaks:v8.30.1@sha256:c00b6bd0aeb3071cbcb79009cb16a60dd9e0a7c60e2be9ab65d25e6bc8abbb7f git /repo --log-opts="origin/${{ github.base_ref }}..HEAD" --redact --no-banner
 
     - name: Check whether anything other than documentation changed
       id: changed
@@ -65,10 +65,10 @@ jobs:
     runs-on: windows-latest
 
     steps:
-    - uses: actions/checkout@v6
+    - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
 
     - name: Add MSBuild to PATH
-      uses: microsoft/setup-msbuild@v3
+      uses: microsoft/setup-msbuild@30375c66a4eea26614e0d39710365f22f8b0af57 # v3.0.0
 
     - name: Restore NuGet packages
       working-directory: ${{env.GITHUB_WORKSPACE}}
