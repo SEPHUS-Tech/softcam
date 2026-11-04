@@ -33,6 +33,11 @@ jobs:
     - name: Check commit subjects
       run: ./scripts/checks/check_commits.sh "origin/${{ github.base_ref }}..HEAD"
 
+    - name: Check pull request title
+      env:
+        PR_TITLE: ${{ github.event.pull_request.title }}
+      run: bash scripts/checks/check_commits.sh --subject "$PR_TITLE"
+
     - name: Scan the pull request's commits for secrets
       run: docker run --rm -v "$PWD:/repo" ghcr.io/gitleaks/gitleaks:v8.30.1 git /repo --log-opts="origin/${{ github.base_ref }}..HEAD" --redact --no-banner
 
