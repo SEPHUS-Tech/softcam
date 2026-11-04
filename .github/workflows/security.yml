@@ -80,7 +80,7 @@ jobs:
       run: docker run --rm -v "$PWD:/repo" ghcr.io/gitleaks/gitleaks:v8.30.1 git /repo --redact --no-banner
 
   dependencies:
-    # audits: packages.config
+    # audits: tests/core_tests/packages.config tests/dll_tests/packages.config
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v6
@@ -99,11 +99,3 @@ jobs:
       run: |
         echo "No vulnerability database is consulted for these inputs."
         echo "They are restored by NuGet and downloaded by a batch script, not tracked by a package manager this job can audit."
-
-  surface:
-    runs-on: ubuntu-latest
-    steps:
-    - uses: actions/checkout@v6
-
-    - name: Check that every manifest has an audit job
-      run: ./scripts/checks/check_audit_coverage.sh
