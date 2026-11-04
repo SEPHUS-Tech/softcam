@@ -17,14 +17,12 @@ jobs:
     uses: ./.github/workflows/ci.yml
     permissions:
       contents: read
-    secrets: inherit
 
   security:
     uses: ./.github/workflows/security.yml
     permissions:
       contents: read
       security-events: write   # CodeQL uploads its results
-    secrets: inherit
 
   tag:
     name: The tag must be annotated
