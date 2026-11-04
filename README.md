@@ -46,7 +46,7 @@ Note: You can use Visual Studio 2019 instead. The project files to use with Visu
 
 ## Continuous integration and releases
 
-CI runs on pull requests to `main` and on pushes to `main`, and again as part of a release. A pull request first runs the `hygiene` job: commit subjects against Conventional Commits, a secret scan of its own commits, and a check for whether anything besides documentation changed. When it did, the build matrix runs Release and Debug for x64 and Win32: the solutions, `core_tests.exe` and `dll_tests.exe`, the examples, and the Python binding on Release/x64.
+CI runs on pull requests to any branch and on pushes to `main`, and again as part of a release. A pull request first runs the `hygiene` job: commit subjects and the pull request title against Conventional Commits (a subject over 72 characters only warns), the audit-coverage guard, a secret scan of its own commits, and a check for whether anything besides documentation changed. When it did, the build matrix runs Release and Debug for x64 and Win32: the solutions, `core_tests.exe` and `dll_tests.exe`, the examples, and the Python binding on Release/x64.
 
 The security workflow runs CodeQL, a secret scan of the full history, the third-party licence check and a guard that every dependency manifest has an audit job. It runs on pull requests and pushes to `main`, weekly, and as part of a release.
 
