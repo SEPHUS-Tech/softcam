@@ -50,7 +50,7 @@ CI runs on pull requests to `main` and on pushes to `main`, and again as part of
 
 The security workflow runs CodeQL, a secret scan of the full history, the third-party licence check and a guard that every dependency manifest has an audit job. It runs on pull requests and pushes to `main`, weekly, and as part of a release.
 
-Releases are cut from annotated tags, which the release workflow verifies. A release candidate and a stable release look like this:
+Releases are cut from annotated strict `vMAJOR.MINOR.PATCH` tags with an optional pre-release suffix, on a commit of `main`, which the release workflow verifies. A release candidate and a stable release look like this:
 
 ```
 git tag -a vX.Y.Z-rc.1 -m "vX.Y.Z-rc.1"
@@ -59,7 +59,7 @@ git tag -a vX.Y.Z -m "vX.Y.Z"
 git push origin vX.Y.Z
 ```
 
-The tag runs CI and security again, builds Release/x64, packages `softcam-x64-release.zip` with a `.sha256`, and publishes both on a GitHub release whose notes are generated from the commit subjects. A tag with a suffix is marked as a pre-release and never becomes the latest release.
+The tag runs CI and security again, builds Release/x64, packages `softcam-x64-release.zip` with a `.sha256`, and publishes both on a GitHub release whose notes are generated from the commit subjects. A tag with a suffix is marked as a pre-release and never becomes the latest release, and only the highest stable tag becomes the latest release.
 
 ## Demo
 

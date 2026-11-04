@@ -8,6 +8,12 @@ on:
 permissions:
   contents: read
 
+# Running releases are never cancelled. GitHub keeps only one waiting run per group, so a third
+# tag pushed while one runs and one waits cancels the waiting run, which then has to be re-run.
+concurrency:
+  group: release-${{ github.repository }}-${{ github.ref_type }}
+  cancel-in-progress: false
+
 env:
   # Path to the solution file relative to the root of the project.
   SOLUTION_FILE_PATH: ./softcam.sln
@@ -24,12 +30,30 @@ jobs:
       contents: read
       security-events: write   # CodeQL uploads its results
 
+  # Runs before anything is built: a lightweight tag, a tag off main or a tag that is not a strict
+  # version must not reach a release.
   tag:
-    name: The tag must be annotated
+    name: Check the tag
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
+    outputs:
+      prerelease: ${{ steps.semver.outputs.prerelease }}
+      latest: ${{ steps.channels.outputs.latest }}
     steps:
-    - uses: actions/checkout@v6
+    - name: Checkout
+      uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+      with:
+        fetch-depth: 0
+
+    - name: Check the tag is on main
+      # No branch protection on this plan, so this check is what keeps an unreviewed commit from
+      # being released.
+      run: |
+        git fetch --no-tags origin "+refs/heads/main:refs/remotes/origin/main"
+        if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
+          echo "::error::$GITHUB_REF_NAME is not on main. Releases must be cut from a commit on main."
+          exit 1
+        fi
 
     - name: Check the tag type
       # actions/checkout leaves a lightweight ref in place of the pushed tag, so the tag object
@@ -41,16 +65,46 @@ jobs:
           exit 1
         fi
 
+    - name: Check the tag format
+      id: semver
+      # Only vMAJOR.MINOR.PATCH, optionally with a pre-release suffix, names a release.
+      run: |
+        if ! printf '%s\n' "$GITHUB_REF_NAME" | grep -Eq '^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-(0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*)(\.(0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*))*)?$'; then
+          echo "::error::$GITHUB_REF_NAME is not a release tag. Use vMAJOR.MINOR.PATCH, optionally with a pre-release suffix such as v0.1.0-rc.1."
+          exit 1
+        fi
+        if printf '%s\n' "$GITHUB_REF_NAME" | grep -Eq '^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$'; then
+          echo "prerelease=false" >> "$GITHUB_OUTPUT"
+        else
+          echo "prerelease=true" >> "$GITHUB_OUTPUT"
+        fi
+
+    - name: Select latest
+      id: channels
+      # Only the highest stable tag merged into main moves `latest`; a patch on an older line
+      # does not move it backwards.
+      run: |
+        git fetch --force --tags origin
+        release='^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-(0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*)(\.(0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*))*)?$'
+        stable='^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$'
+        # Only tags on main count: a tag pushed elsewhere fails its own run but stays on the remote.
+        tags="$(git -c versionsort.suffix=- tag --merged origin/main -l 'v*' --sort=-v:refname | grep -E "$release" || true)"
+        highest_stable="$(printf '%s\n' "$tags" | grep -E "$stable" | head -n 1 || true)"
+        if printf '%s\n' "$GITHUB_REF_NAME" | grep -Eq "$stable" && [ "$GITHUB_REF_NAME" = "$highest_stable" ]; then latest=true; else latest=false; fi
+        echo "latest=$latest" >> "$GITHUB_OUTPUT"
+
   build:
     needs: [ci, security, tag]
-    # `tag` is skipped on a dispatch, which would otherwise skip this job too.
-    if: ${{ !cancelled() && needs.ci.result == 'success' && needs.security.result == 'success' && needs.tag.result != 'failure' }}
+    # `tag` is skipped on a dispatch, which would otherwise skip this job too. On a tag push it
+    # only builds when the tag checks passed.
+    if: ${{ !cancelled() && needs.ci.result == 'success' && needs.security.result == 'success' && (needs.tag.result == 'success' || (needs.tag.result == 'skipped' && github.ref_type == 'branch')) }}
     runs-on: windows-latest
     steps:
-    - uses: actions/checkout@v6
+    - name: Checkout
+      uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
 
     - name: Add MSBuild to PATH
-      uses: microsoft/setup-msbuild@v3
+      uses: microsoft/setup-msbuild@30375c66a4eea26614e0d39710365f22f8b0af57 # v3.0.0
 
     - name: Restore NuGet packages
       working-directory: ${{env.GITHUB_WORKSPACE}}
@@ -76,7 +130,7 @@ jobs:
         "$hash  softcam-x64-release.zip" | Set-Content -Encoding ascii -NoNewline "softcam-x64-release.zip.sha256"
 
     - name: Upload Release/x64 distributable as workflow artifact
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
       with:
         name: softcam-x64-release
         path: |
@@ -84,30 +138,56 @@ jobs:
           softcam-x64-release.zip.sha256
         retention-days: 90
 
-  release:
-    needs: build
+  notes:
+    name: Generate the notes
+    needs: [build, tag]
     if: startsWith(github.ref, 'refs/tags/v')
     permissions:
-      contents: write        # create the release
+      contents: read
       pull-requests: read    # git-cliff reads the pulls API to attribute authors
     runs-on: ubuntu-latest
+    outputs:
+      content: ${{ steps.cliff.outputs.content }}
     steps:
-    - uses: actions/checkout@v6
+    - name: Checkout
+      uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
       with:
         fetch-depth: 0   # git-cliff needs the full history and every tag
 
-    - name: Download Release/x64 distributable
-      uses: actions/download-artifact@v4
-      with:
-        name: softcam-x64-release
-        path: ./
+    - name: Select the release range
+      id: range
+      # git-cliff's --latest renders the repository's newest tag, so re-running a release for an
+      # older tag after a newer one exists would render the newer version's notes. An explicit
+      # range ending at the pushed tag renders that tag's notes.
+      env:
+        STABLE: ${{ needs.tag.outputs.prerelease == 'false' }}
+      run: |
+        if [ "$STABLE" = "true" ]; then
+          pattern='^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$'
+        else
+          pattern='^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-(0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*)(\.(0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*))*)?$'
+        fi
+        # The tag's parent excludes the tag itself and any candidate cut on the same commit.
+        if parent="$(git rev-parse --verify --quiet "${GITHUB_REF_NAME}^{commit}^")"; then
+          previous="$(git -c versionsort.suffix=- tag --merged "$parent" --sort=-v:refname --list \
+            | grep -E "$pattern" | grep -vxF "$GITHUB_REF_NAME" | head -n 1 || true)"
+        else
+          previous=""
+        fi
+        if [ -n "$previous" ]; then
+          echo "cliff_range=$previous..$GITHUB_REF_NAME" >> "$GITHUB_OUTPUT"
+        else
+          # A bare tag is not a valid range; its peeled commit renders the history up to the tag
+          # and git-cliff still takes the version from the tag on that commit.
+          echo "cliff_range=$(git rev-parse "${GITHUB_REF_NAME}^{commit}")" >> "$GITHUB_OUTPUT"
+        fi
 
     - name: Generate the notes
-      uses: orhun/git-cliff-action@v4
+      uses: orhun/git-cliff-action@a9a95522b26fe6403f7bb24031f21fb573d0f5ff # v4.9.1
       id: cliff
       with:
         config: cliff.toml
-        args: --latest --strip header
+        args: --strip header ${{ steps.range.outputs.cliff_range }}
       env:
         GITHUB_REPO: ${{ github.repository }}
         # Required: on a private repository an unauthenticated run gets a 404 from the pulls API
@@ -115,15 +195,29 @@ jobs:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         # A stable release's notes start at the previous stable release, so a release cut after
         # its candidates still lists every change since then, not only those since the last rc.
-        GIT_CLIFF_TAG_PATTERN: ${{ contains(github.ref_name, '-') && 'v[0-9]*' || '^v[0-9]+\.[0-9]+\.[0-9]+$' }}
+        GIT_CLIFF_TAG_PATTERN: ${{ needs.tag.outputs.prerelease == 'false' && '^v[0-9]+\.[0-9]+\.[0-9]+$' || 'v[0-9]*' }}
+
+  release:
+    needs: [notes, tag]
+    if: startsWith(github.ref, 'refs/tags/v')
+    permissions:
+      contents: write        # create the release
+    runs-on: ubuntu-latest
+    steps:
+    - name: Download Release/x64 distributable
+      uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+      with:
+        name: softcam-x64-release
+        path: ./
 
     - name: Publish the GitHub release
-      uses: softprops/action-gh-release@v3
+      uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
       with:
-        body: ${{ steps.cliff.outputs.content }}
+        body: ${{ needs.notes.outputs.content }}
         files: |
           softcam-x64-release.zip
           softcam-x64-release.zip.sha256
-        # A tag with a suffix (v0.1.0-rc.1) is a pre-release and never becomes "latest".
-        prerelease: ${{ contains(github.ref_name, '-') }}
-        make_latest: ${{ !contains(github.ref_name, '-') }}
+        # A tag with a suffix (v0.1.0-rc.1) is a pre-release. Only the highest stable tag becomes
+        # "latest".
+        prerelease: ${{ needs.tag.outputs.prerelease == 'true' }}
+        make_latest: ${{ needs.tag.outputs.latest == 'true' }}
