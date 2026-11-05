@@ -19,11 +19,11 @@ SUBJECT_MAX=72
 
 # Prints a failure and returns 1 when the subject is not a Conventional Commit; warns when it is
 # longer than SUBJECT_MAX. Scopes may be upper case (`docs(LOOR-215): …`), and git's own revert
-# subject (`Revert "feat: …"`) is accepted.
+# subject (`Revert "feat: …"`, and `Reapply "…"` for a revert of a revert) is accepted.
 check_subject() {
   local id="$1" subject="$2"
-  if ! printf '%s' "$subject" | grep -qE "^($TYPES)(\([A-Za-z0-9._/-]+\))?!?: .+" &&
-     ! printf '%s' "$subject" | grep -qE '^Revert ".+"$'; then
+  if ! printf '%s' "$subject" | grep -qE "^($TYPES)(\([A-Za-z0-9._/,-]+\))?!?: .+" &&
+     ! printf '%s' "$subject" | grep -qE '^(Revert|Reapply) ".+"$'; then
     printf 'FAIL %s  not a Conventional Commit subject\n     %s\n' "$id" "$subject"
     return 1
   fi
