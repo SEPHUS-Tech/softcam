@@ -3,22 +3,32 @@
 # Please see the documentation for all configuration options:
 # https://docs.github.com/github/administering-a-repository/configuration-options-for-dependency-updates
 
+# The commit gate requires Conventional Commits, so every entry fixes its subject prefix.
 version: 2
 updates:
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
       interval: "daily"
+    commit-message:
+      prefix: build
+      include: scope
 
   - package-ecosystem: "nuget"
     directory: "/tests/core_tests"
     schedule:
       interval: "weekly"
+    commit-message:
+      prefix: build
+      include: scope
 
   - package-ecosystem: "nuget"
     directory: "/tests/dll_tests"
     schedule:
       interval: "weekly"
+    commit-message:
+      prefix: build
+      include: scope
 
 # pybind11 is pinned by PYBIND11_VER in examples/python_binding/DownloadPybind11.bat and downloaded by a
 # batch script, so Dependabot cannot track it. Bump that variable when updating it.
