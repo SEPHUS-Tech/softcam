@@ -88,7 +88,8 @@ jobs:
         release='^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-(0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*)(\.(0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*))*)?$'
         stable='^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$'
         # Only tags on main count: a tag pushed elsewhere fails its own run but stays on the remote.
-        tags="$(git -c versionsort.suffix=- tag --merged origin/main -l 'v*' --sort=-v:refname | grep -E "$release" || true)"
+        # A lightweight tag stays on the remote and would hide or shorten annotated releases.
+        tags="$(git -c versionsort.suffix=- tag --merged origin/main -l 'v*' --sort=-v:refname --format='%(objecttype) %(refname:short)' | awk '$1 == "tag" { print $2 }' | grep -E "$release" || true)"
         highest_stable="$(printf '%s\n' "$tags" | grep -E "$stable" | head -n 1 || true)"
         if printf '%s\n' "$GITHUB_REF_NAME" | grep -Eq "$stable" && [ "$GITHUB_REF_NAME" = "$highest_stable" ]; then latest=true; else latest=false; fi
         echo "latest=$latest" >> "$GITHUB_OUTPUT"
@@ -170,6 +171,7 @@ jobs:
         # The tag's parent excludes the tag itself and any candidate cut on the same commit.
         if parent="$(git rev-parse --verify --quiet "${GITHUB_REF_NAME}^{commit}^")"; then
           previous="$(git -c versionsort.suffix=- tag --merged "$parent" --sort=-v:refname --list \
+            --format='%(objecttype) %(refname:short)' | awk '$1 == "tag" { print $2 }' \
             | grep -E "$pattern" | grep -vxF "$GITHUB_REF_NAME" | head -n 1 || true)"
         else
           previous=""
