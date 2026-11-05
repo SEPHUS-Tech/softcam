@@ -45,11 +45,16 @@ configs="$(git ls-files -- '*packages.config')" || {
 }
 while IFS= read -r config; do
   [ -n "$config" ] || continue
-  ids="$(sed -n 's/.*id="\([^"]*\)".*/\1/p' "$config")"
-  # A file the pattern cannot read would otherwise pass with nothing checked.
+  # XML comments are dropped first, so a commented-out package is not read as a dependency.
+  body="$(perl -0pe 's/<!--.*?-->//gs' "$config")"
+  ids="$(printf '%s\n' "$body" | sed -n 's/.*<package[[:space:]][^>]*id="\([^"]*\)".*/\1/p')"
   if [ -z "$ids" ]; then
-    printf 'FAIL %s lists no package id this check can read\n' "$config"
-    fail=1
+    # No package at all is a valid file; packages whose ids the pattern cannot read would
+    # otherwise pass with nothing checked.
+    if printf '%s\n' "$body" | grep -q '<package[[:space:]]'; then
+      printf 'FAIL %s lists packages whose id this check cannot read\n' "$config"
+      fail=1
+    fi
     continue
   fi
   while IFS= read -r id; do
