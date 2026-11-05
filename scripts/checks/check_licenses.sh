@@ -45,6 +45,13 @@ configs="$(git ls-files -- '*packages.config')" || {
 }
 while IFS= read -r config; do
   [ -n "$config" ] || continue
+  ids="$(sed -n 's/.*id="\([^"]*\)".*/\1/p' "$config")"
+  # A file the pattern cannot read would otherwise pass with nothing checked.
+  if [ -z "$ids" ]; then
+    printf 'FAIL %s lists no package id this check can read\n' "$config"
+    fail=1
+    continue
+  fi
   while IFS= read -r id; do
     [ -n "$id" ] || continue
     case " $table_ids " in
@@ -54,7 +61,7 @@ while IFS= read -r config; do
         fail=1
         ;;
     esac
-  done < <(sed -n 's/.*id="\([^"]*\)".*/\1/p' "$config")
+  done <<< "$ids"
 done <<< "$configs"
 
 [ "$fail" = 0 ] && echo "ok   every input is on the allow-list"
